@@ -1,14 +1,12 @@
-import tensorflow.python.platform
-
 import numpy as np
 import tensorflow as tf
 
-NUM_LABELS = 2
 BATCH_SIZE = 100
 
 tf.app.flags.DEFINE_string('train', None, 'File contains training data')
 tf.app.flags.DEFINE_string('test', None, 'File contains the test data')
 tf.app.flags.DEFINE_integer('num_epochs', 1, 'Number of iterations')
+tf.app.flags.DEFINE_integer('learning_rate', 0.01, 'Number of iterations')
 FLAGS = tf.app.flags.FLAGS
 
 
@@ -17,34 +15,36 @@ FLAGS = tf.app.flags.FLAGS
 def extract_data(filename):
     labels = []
     features = []
+    num_labels = 0
     for line in file(filename):
         row = line.split(",")
-        labels.append(int(row[0]))
+        label = int(row[0])
+        labels.append(label)
+        num_labels = max(num_labels, label + 1)
         features.append([float(x) for x in row[1:]])
 
     labels_np = np.array(labels).astype(np.uint8)
     features_np = np.matrix(features).astype(np.float32)
-    labels_onehot = (np.arange(NUM_LABELS) == labels_np[:, None]).astype(np.float32)
-    return features_np,labels_onehot
+    labels_onehot = (np.arange(num_labels) == labels_np[:, None]).astype(np.float32)
+    return num_labels, features_np, labels_onehot
 
 
 def main(argv=None):
     train_data,train_labels = extract_data(FLAGS.train)
     test_data, test_labels = extract_data(FLAGS.test)
-    train_size, num_features = train_data.shape
+    num_labels, train_size, num_features = train_data.shape
 
     x = tf.placeholder("float", shape=[None, num_features])
-    y_ = tf.placeholder("float", shape=[None, NUM_LABELS])
-    test_data_node = tf.constant(test_data)
+    y_ = tf.placeholder("float", shape=[None, num_labels])
 
     # Define and initialize the network.
-    W = tf.Variable(tf.zeros([num_features, NUM_LABELS]))
-    b = tf.Variable(tf.zeros([NUM_LABELS]))
+    W = tf.Variable(tf.zeros([num_features, num_labels]))
+    b = tf.Variable(tf.zeros([num_labels]))
     y = tf.nn.softmax(tf.matmul(x, W) + b)
 
     # Optimization.
     cross_entropy = -tf.reduce_sum(y_ * tf.log(y))
-    train_step = tf.train.GradientDescentOptimizer(0.01).minimize(cross_entropy)
+    train_step = tf.train.GradientDescentOptimizer(FLAGS.learning_rate).minimize(cross_entropy)
 
     # Evaluation.
     correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_, 1))
