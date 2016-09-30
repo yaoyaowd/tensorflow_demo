@@ -1,17 +1,16 @@
 import collections
-import math
 import os
 import random
 import zipfile
 
 import numpy as np
 from six.moves import urllib
-from six.moves import xrange
 
 import tensorflow as tf
+from embedding_model import EmbeddingModel
+
 
 # Download data from a website and read data
-
 url = 'http://mattmahoney.net/dc/'
 
 def download_data(filename, expected_size):
@@ -62,7 +61,7 @@ print 'Most common words (+UNK)', count[:5]
 
 # Generates a training batch for the skip gram model
 data_index = 0
-def generate_batch(batch_size, num_skips, skip_window):
+def generate_batch(batch_size, num_skips=2, skip_window=1):
     global data_index
     batch = np.ndarray(shape=(batch_size), dtype=np.int32)
     labels = np.ndarray(shape=(batch_size, 1), dtype=np.int32)
@@ -93,65 +92,23 @@ def generate_batch(batch_size, num_skips, skip_window):
 
 batch_size = 128
 embedding_size = 128
-skip_window = 1
-num_skips = 2
+num_steps = 200001
+
+model = EmbeddingModel(vocabulary_size, embedding_size, batch_size)
+model.train(num_steps=num_steps, generate_batch=generate_batch)
+
+
+"""
 
 valid_size = 10
 valid_window = 100
 valid_examples = np.random.choice(valid_window, valid_size, replace=False)
 num_sampled = 64
 
-graph = tf.Graph()
-
-with graph.as_default():
-    train_inputs = tf.placeholder(tf.int32, shape=[batch_size])
-    train_labels = tf.placeholder(tf.int32, shape=[batch_size, 1])
     valid_dataset = tf.constant(valid_examples, dtype=tf.int32)
-
-    with tf.device('/cpu:0'):
-        # Create initial embeddings for each word
-        embeddings = tf.Variable(tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0))
-
-        # For each training example, the embed looks like
-        embed = tf.nn.embedding_lookup(embeddings, train_inputs)
-
-        # Construct variables for NCE loss
-        nce_weights = tf.Variable(
-            tf.truncated_normal([vocabulary_size, embedding_size], stddev=1.0 / math.sqrt(embedding_size)))
-        nce_biases = tf.Variable(tf.zeros([vocabulary_size]))
-
-    loss = tf.reduce_mean(tf.nn.nce_loss(nce_weights, nce_biases, embed, train_labels, num_sampled, vocabulary_size))
-    optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(loss)
-
-    norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
-    normalized_embeddings = embeddings / norm
     valid_embeddings = tf.nn.embedding_lookup(normalized_embeddings, valid_dataset)
-
     similarity = tf.matmul(valid_embeddings, normalized_embeddings, transpose_b=True)
 
-    init = tf.initialize_all_variables()
-
-num_steps = 200001
-
-with tf.Session(graph=graph) as session:
-    init.run()
-    print "Initialized"
-
-    average_loss = 0
-    for step in xrange(num_steps):
-        batch_inputs, batch_labels = generate_batch(batch_size, num_skips, skip_window)
-        feed_dict = {train_inputs: batch_inputs, train_labels: batch_labels}
-
-        # We perform one update step by evaluating the optimizer op (including it
-        # in the list of returned values for session.run()
-        _, loss_val = session.run([optimizer, loss], feed_dict=feed_dict)
-        average_loss += loss_val
-
-        if step % 2000 == 0:
-            if step > 0:
-                average_loss /= 2000
-            print "Average loss at step: ", step, " loss: ", average_loss
-            average_loss = 0
 
         if step % 10000 == 0:
             sim = similarity.eval()
@@ -165,9 +122,6 @@ with tf.Session(graph=graph) as session:
                     log_str = "%s %s," % (log_str, close_word)
                 print(log_str)
 
-        final_embeddings = normalized_embeddings.eval()
-
-"""
 # Step 6: Visualize the embeddings.
 
 def plot_with_labels(low_dim_embs, labels, filename='tsne.png'):
