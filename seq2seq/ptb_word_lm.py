@@ -1,5 +1,3 @@
-import time
-
 import numpy as np
 import tensorflow as tf
 
@@ -25,7 +23,7 @@ class PTBModel(object):
         self._input_data = tf.placeholder(tf.int32, [self._batch_size, self._num_steps])
         self._targets = tf.placeholder(tf.int32, [self._batch_size, self._num_steps])
 
-        # Create LSTM cell
+        # Create LSTM cell.
         lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(size, forget_bias=0.0)
         if is_training and config.keep_prob < 1.0:
             lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell, output_keep_prob=config.keep_prob)
@@ -33,7 +31,7 @@ class PTBModel(object):
 
         self._init_state = cell.zero_state(self._batch_size, tf.float32)
 
-        # Create embeddings for words
+        # Create embeddings for words.
         with tf.device("/cpu:0"):
             embedding = tf.get_variable("embedding", [vocab_size, size])
             inputs = tf.nn.embedding_lookup(embedding, self._input_data)
@@ -48,7 +46,11 @@ class PTBModel(object):
                     tf.get_variable_scope().reuse_variables()
                 (cell_ouptut, state) = cell(inputs[:, time_step, :], state)
                 outputs.append(cell_ouptut)
+
+        # Reshape output to num_steps * size metrics.
         output = tf.reshape(tf.concat(1, outputs), [-1, size])
+
+        # From the output, estimate the best words and calculate the loss.
         softmax_w = tf.get_variable("softmax_w", [size, vocab_size])
         softmax_b = tf.get_variable("softmax_b", [vocab_size])
         logits = tf.matmul(output, softmax_w) + softmax_b
@@ -61,6 +63,7 @@ class PTBModel(object):
 
         if not is_training:
             return
+        # Apply learning rate to a gradient descent optimizer and apply gradients to all variables.
         self._lr = tf.Variable(0.0, trainable=False)
         tvars = tf.trainable_variables()
         grads, _ = tf.clip_by_global_norm(tf.gradients(self._cost, tvars), config.max_grad_norm)
