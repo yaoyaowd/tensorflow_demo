@@ -73,6 +73,7 @@ class Seq2SeqModel(object):
             self.decoder_inputs.append(tf.placeholder(tf.int32, shape=[None], name="decoder{0}".format(i)))
             self.target_weights.append(tf.placeholder(tf.float32, shape=[None], name="weight{0}".format(i)))
         targets = [self.decoder_inputs[i + 1] for i in xrange(len(self.decoder_inputs) - 1)]
+        print len(self.encoder_inputs), len(self.decoder_inputs), len(targets)
 
         # Training outputs and losses
         if forward_only:
@@ -86,6 +87,12 @@ class Seq2SeqModel(object):
                         tf.matmul(output, output_projection[0]) + output_projection[1]
                         for output in self.outputs]
         else:
+            self.output, _ = tf.nn.seq2seq.embedding_attention_seq2seq(
+                self.encoder_inputs, self.decoder_inputs, cell,
+                num_encoder_symbols=source_vocab_size, num_decoder_symbols=target_vocab_size,
+                embedding_size=size, feed_previous=False)
+            self.loss = tf.nn.seq2seq.sequence_loss(self.output, targets, self.target_weights)
+
             self.outputs, self.losses = tf.nn.seq2seq.model_with_buckets(
                 self.encoder_inputs, self.decoder_inputs, targets,
                 self.target_weights, buckets, lambda x, y: seq2seq_f(x, y, False),

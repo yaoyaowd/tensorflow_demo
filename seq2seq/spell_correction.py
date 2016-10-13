@@ -32,8 +32,8 @@ def prepare_spell_correction(input_file):
     with open(input_file) as f:
         for line in f.readlines():
             items = line.strip().lower().split('\t')
-            typo_ids = data_utils.string_to_token_ids(items[1], vocabulary)
-            correction_ids = data_utils.string_to_token_ids(items[2], vocabulary)
+            typo_ids = data_utils.string_to_token_ids(items[0], vocabulary)
+            correction_ids = data_utils.string_to_token_ids(items[1], vocabulary)
             correction_ids.append(data_utils.EOS_ID)
             if (data_utils.UNK_ID) in typo_ids or (len(typo_ids) > MAX_LENGTH):
                 continue
@@ -65,7 +65,7 @@ def create_model(session, forward_only):
 
 
 def train():
-    train_set, dev_set, vocabulary = prepare_spell_correction(DATA_PATH + "spell_correction.txt")
+    train_set, dev_set, vocabulary = prepare_spell_correction(DATA_PATH + "train.txt")
     train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
     train_total_size = float(sum(train_bucket_sizes))
     train_buckets_scale = [sum(train_bucket_sizes[:i + 1]) / train_total_size

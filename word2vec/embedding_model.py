@@ -15,11 +15,11 @@ class EmbeddingModel:
             with tf.device('/cpu:0'):
                 # Create initial embeddings for each words and look up helper function.
                 embeddings = tf.Variable(tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0))
+                # Create a look up table to look up vector for input.
                 embed = tf.nn.embedding_lookup(embeddings, self.train_inputs)
-
-                nce_weights = tf.Variable(
-                    tf.truncated_normal([vocabulary_size, embedding_size],
-                                        stddev = 1.0 / math.sqrt(embedding_size)))
+                # normalize weights for word embedding matrics
+                nce_weights = tf.Variable(tf.truncated_normal([vocabulary_size, embedding_size],
+                                                              stddev = 1.0 / math.sqrt(embedding_size)))
                 nce_bias = tf.Variable(tf.zeros([vocabulary_size]))
 
             self.loss = tf.reduce_mean(tf.nn.nce_loss(
