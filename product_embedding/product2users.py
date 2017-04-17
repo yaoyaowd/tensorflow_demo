@@ -1,6 +1,7 @@
 """
 Inspired by skip gram algorithm.
 """
+import random
 import math
 import numpy as np
 import os
@@ -8,13 +9,19 @@ import tensorflow as tf
 
 
 EMBEDDING_SIZE = 128
-BATCH_SIZE = 512
+BATCH_SIZE = 256
 NUM_STEPS = 20000001
 MAX_PRODUCT_SIZE = 2000000
+DISPLAY_EPOCH = 20000
+EVAL_EPOCH = 100000
+M1 = 1000000
+MAX_LINE = M1 * 10
 
+user_dict = dict()
+user_freq = dict()
 product_dict = dict()
 id_to_product = dict()
-paragraphs = list()
+training_samples = []
 
 
 flags = tf.app.flags
@@ -24,7 +31,7 @@ flags.DEFINE_string("model", "", "Model filename")
 
 
 class EmbeddingModel:
-    def __init__(self, product_size, embedding_size, batch_size):
+    def __init__(self, product_size, user_size, embedding_size, batch_size):
         self.batch_size = batch_size
         self.graph = tf.Graph()
         with self.graph.as_default():
@@ -36,12 +43,12 @@ class EmbeddingModel:
                 embeddings = tf.Variable(tf.random_uniform([product_size, embedding_size], -1.0, 1.0))
                 embed = tf.nn.embedding_lookup(embeddings, self.train_inputs)
                 nce_weights = tf.Variable(tf.truncated_normal(
-                    [product_size, embedding_size], stddev=1.0/math.sqrt(embedding_size)))
-                nce_bias = tf.Variable(tf.zeros([product_size]))
+                    [user_size, embedding_size], stddev=1.0/math.sqrt(embedding_size)))
+                nce_bias = tf.Variable(tf.zeros([user_size]))
 
             self.loss = tf.reduce_mean(tf.nn.nce_loss(
-                nce_weights, nce_bias, embed, self.train_labels, batch_size / 2, product_size))
-            self.optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.1).minimize(
+                nce_weights, nce_bias, embed, self.train_labels, batch_size / 2, user_size))
+            self.optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.001).minimize(
                 self.loss, global_step=self.global_step)
 
             norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
@@ -72,15 +79,15 @@ class EmbeddingModel:
                 _, loss_val = session.run([self.optimizer, self.loss], feed_dict=feed_dict)
 
                 average_loss += loss_val
-                if step > 0 and step % 20000 == 0:
-                    print "Average loss at step: ", self.global_step.eval(), " loss: ", average_loss / 20000
+                if step > 0 and step % DISPLAY_EPOCH == 0:
+                    print "Average loss at step: ", self.global_step.eval(), " loss: ", average_loss / DISPLAY_EPOCH
                     average_loss = 0
                     self.final_embeddings = self.normalized_embeddings.eval()
 
                     checkpoint_path = os.path.join(FLAGS.model, "pe.ckpt")
                     self.saver.save(session, checkpoint_path, global_step=self.global_step)
 
-                    if step % 100000 == 0:
+                    if step % EVAL_EPOCH == 0:
                         sim = self.similarity.eval()
                         for i in xrange(len(self.valid_examples)):
                             valid_product = id_to_product[self.valid_examples[i]]
@@ -95,67 +102,59 @@ class EmbeddingModel:
 
 def load_data(filename):
     num_lines_read = 0
-    prev_uid = ''
-    pids = []
     with open(filename) as f:
         for line in f:
             num_lines_read += 1
             items = line.strip().split('\t')
-            if len(items) != 3:
+            if len(items) != 2:
                 continue
 
-            uid, action_time, pid = items[0], items[1], items[2]
+            uid, pid = items[0], items[1]
+            if uid not in user_freq:
+                user_freq[uid] = 0
+            user_freq[uid] = user_freq[uid] + 1
+            if num_lines_read % M1 == 0:
+                print "read %d lines" % num_lines_read
+            if num_lines_read >= MAX_LINE:
+                break
+
+    num_lines_read = 0
+    with open(filename) as f:
+        for line in f:
+            num_lines_read += 1
+            items = line.strip().split('\t')
+            if len(items) != 2:
+                continue
+
+            uid, pid = items[0], items[1]
+            if user_freq[uid] == 1:
+                continue
+
             if pid not in product_dict:
                 product_dict[pid] = len(product_dict) + 1
                 id_to_product[len(product_dict)] = pid
+            if uid not in user_dict:
+                user_dict[uid] = len(user_dict) + 1
+            training_samples.append([product_dict[pid], user_dict[uid]])
 
-            if uid != prev_uid and len(pids) > 0:
-                paragraphs.append(pids)
-                prev_uid = uid
-                pids = []
-            if len(pids) == 0:
-                pids.append(product_dict[pid])
-            elif pids[len(pids) - 1] != product_dict[pid]:
-                pids.append(product_dict[pid])
-
-            if num_lines_read % 10000000 == 0:
+            if num_lines_read % M1 == 0:
                 print "read %d lines" % num_lines_read
-                print "saw %d different products" % len(product_dict)
-            if num_lines_read % 100000000 == 0:
+                print "saw %d products %d users" % (len(product_dict), len(user_dict))
+            if num_lines_read >= MAX_LINE:
                 break
 
 
-data_index = 0
-product_index = 0
 def generate_batch(batch_size):
-    global data_index
-    global product_index
+    global training_samples
 
-    batch = np.ndarray(shape=(batch_size), dtype=np.int32)
+    batchs = np.ndarray(shape=(batch_size), dtype=np.int32)
     labels = np.ndarray(shape=(batch_size, 1), dtype=np.int32)
-    i = 0
-    while i < batch_size:
-        product_id = paragraphs[data_index][product_index]
-        found = False
-        for t in range(product_index + 1, len(paragraphs[data_index])):
-            if paragraphs[data_index][t]:
-                batch[i] = product_id
-                labels[i, 0] = paragraphs[data_index][t]
-                i += 1
-                batch[i] = paragraphs[data_index][t]
-                labels[i, 0] = product_id
-                i += 1
-                found = True
-                break
+    samples = random.sample(training_samples, batch_size)
+    for i in range(len(samples)):
+        batchs[i] = samples[i][0]
+        labels[i, 0] = samples[i][1]
 
-        if found:
-            product_index += 1
-
-        if not found or product_index >= len(paragraphs[data_index]) - 1:
-            data_index = (data_index + 1) % len(paragraphs)
-            product_index = 0
-
-    return batch, labels
+    return batchs, labels
 
 
 def main():
@@ -163,7 +162,8 @@ def main():
     global paragraphs
 
     load_data(FLAGS.input)
-    model = EmbeddingModel(len(product_dict) + 1, EMBEDDING_SIZE, BATCH_SIZE)
+    model = EmbeddingModel(
+        len(product_dict) + 1, len(user_dict) + 1, EMBEDDING_SIZE, BATCH_SIZE)
     model.train(num_steps=NUM_STEPS, generate_batch=generate_batch)
 
 

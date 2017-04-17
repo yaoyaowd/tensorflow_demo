@@ -1,14 +1,13 @@
 """
-Inspired by skip gram algorithm.
+Predict the next product using same embedding.
 """
-import math
 import numpy as np
 import os
 import tensorflow as tf
 
 
 EMBEDDING_SIZE = 128
-BATCH_SIZE = 512
+BATCH_SIZE = 32
 NUM_STEPS = 20000001
 MAX_PRODUCT_SIZE = 2000000
 
@@ -35,12 +34,10 @@ class EmbeddingModel:
             with tf.device('/cpu:0'):
                 embeddings = tf.Variable(tf.random_uniform([product_size, embedding_size], -1.0, 1.0))
                 embed = tf.nn.embedding_lookup(embeddings, self.train_inputs)
-                nce_weights = tf.Variable(tf.truncated_normal(
-                    [product_size, embedding_size], stddev=1.0/math.sqrt(embedding_size)))
-                nce_bias = tf.Variable(tf.zeros([product_size]))
+                nce_bias = tf.Variable(tf.zeros([product_size]), trainable=False)
 
             self.loss = tf.reduce_mean(tf.nn.nce_loss(
-                nce_weights, nce_bias, embed, self.train_labels, batch_size / 2, product_size))
+                embeddings, nce_bias, embed, self.train_labels, batch_size / 2, product_size))
             self.optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.1).minimize(
                 self.loss, global_step=self.global_step)
 
@@ -73,7 +70,7 @@ class EmbeddingModel:
 
                 average_loss += loss_val
                 if step > 0 and step % 20000 == 0:
-                    print "Average loss at step: ", self.global_step.eval(), " loss: ", average_loss / 20000
+                    print "Average loss at step: ", self.global_step.eval(), " loss: ", average_loss / 2000
                     average_loss = 0
                     self.final_embeddings = self.normalized_embeddings.eval()
 
@@ -121,7 +118,7 @@ def load_data(filename):
             if num_lines_read % 10000000 == 0:
                 print "read %d lines" % num_lines_read
                 print "saw %d different products" % len(product_dict)
-            if num_lines_read % 100000000 == 0:
+            if num_lines_read % 10000 == 0:
                 break
 
 

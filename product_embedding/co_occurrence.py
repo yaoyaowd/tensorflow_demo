@@ -1,29 +1,17 @@
-import sys
-
+import tensorflow as tf
 
 pid_pairs = {}
 
-
-def process(actions, pids):
-    vpids = []
-    for i in range(1, len(pids)):
-        p1 = min(pids[i - 1], pids[i])
-        p2 = max(pids[i - 1], pids[i])
-        if p1 != p2:
-            if p1 not in pid_pairs:
-                pid_pairs[p1] = dict()
-            if p2 not in pid_pairs[p1]:
-                pid_pairs[p1][p2] = 1
-            else:
-                pid_pairs[p1][p2] = 1 + pid_pairs[p1][p2]
+flags = tf.app.flags
+FLAGS = flags.FLAGS
+flags.DEFINE_string("input", "", "Input filename")
+flags.DEFINE_string("output", "", "Output filename")
 
 
 def load_data(filename):
     num_lines_read = 0
     prev_uid = ''
-    actions = []
     pids = []
-
     with open(filename) as f:
         for line in f:
             num_lines_read += 1
@@ -31,34 +19,37 @@ def load_data(filename):
             if len(items) != 3:
                 continue
 
-            uid = items[0]
-            pid = items[2]
-            if uid != prev_uid:
-                process(actions, pids)
+            uid, action_time, pid = items[0], items[1], items[2]
+            if uid != prev_uid and len(pids) > 0:
+                for i in range(len(pids) - 1):
+                    id1, id2 = pids[i], pids[i + 1]
+                    if id1 == id2:
+                        continue
+                    if id1 > id2:
+                        id1, id2 = id2, id1
+                    key = id1 + '_' + id2
+                    if key in pid_pairs:
+                        pid_pairs[key] = pid_pairs[key] + 1
+                    else:
+                        pid_pairs[key] = 1
                 prev_uid = uid
                 pids = []
             pids.append(pid)
 
             if num_lines_read % 10000000 == 0:
                 print "read %d lines" % num_lines_read
-                print "saw %d valid products" % len(pid_pairs)
+            if num_lines_read % 50000000 == 0:
                 break
 
 
 def main():
-    global product_dict
-    global paragraphs
+    load_data(FLAGS.input)
 
-    load_data(sys.argv[1])
-    with open('/home/dwang/co_occurrence.tsv', 'w') as out:
-        for i in pid_pairs:
-            items = sorted(pid_pairs[i], key=pid_pairs[i].get, reverse=True)
-            vitems = []
-            for j in items:
-                if pid_pairs[i][j] > 1:
-                    vitems.append(j)
-            if len(vitems) > 0:
-                out.write(i + "," + ",".join(vitems) + "\n")
+    with open(FLAGS.output, 'w') as out:
+        items = sorted(pid_pairs, key=pid_pairs.get, reverse=True)
+        for key in items:
+            vs = key.split('_')
+            out.write(vs[0] + '\t' + vs[1] + '\t' + str(pid_pairs[key]) + '\n')
 
 
 if __name__ == '__main__':

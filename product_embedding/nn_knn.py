@@ -1,21 +1,10 @@
-"""
-Inspired by skip gram algorithm.
-"""
-import math
-import numpy as np
 import os
+import numpy as np
 import tensorflow as tf
-
-
-EMBEDDING_SIZE = 128
-BATCH_SIZE = 512
-NUM_STEPS = 20000001
-MAX_PRODUCT_SIZE = 2000000
 
 product_dict = dict()
 id_to_product = dict()
 paragraphs = list()
-
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
@@ -23,36 +12,31 @@ flags.DEFINE_string("input", "", "Input filename")
 flags.DEFINE_string("model", "", "Model filename")
 
 
-class EmbeddingModel:
+class NNKNNModel:
     def __init__(self, product_size, embedding_size, batch_size):
         self.batch_size = batch_size
         self.graph = tf.Graph()
+
         with self.graph.as_default():
             self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size])
             self.train_labels = tf.placeholder(tf.int32, shape=[batch_size, 1])
-            self.global_step = tf.Variable(0, trainable=False)
 
             with tf.device('/cpu:0'):
                 embeddings = tf.Variable(tf.random_uniform([product_size, embedding_size], -1.0, 1.0))
                 embed = tf.nn.embedding_lookup(embeddings, self.train_inputs)
-                nce_weights = tf.Variable(tf.truncated_normal(
-                    [product_size, embedding_size], stddev=1.0/math.sqrt(embedding_size)))
-                nce_bias = tf.Variable(tf.zeros([product_size]))
 
-            self.loss = tf.reduce_mean(tf.nn.nce_loss(
-                nce_weights, nce_bias, embed, self.train_labels, batch_size / 2, product_size))
-            self.optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.1).minimize(
-                self.loss, global_step=self.global_step)
+                output_embed = tf.nn.embedding_lookup(embeddings, self.train_labels)
+
+            weights = tf.Variable(tf.random_normal([embedding_size, embedding_size]))
+            bias = tf.Variable(tf.random_normal([embedding_size]))
+            output_layer = tf.matmul(embed, weights) + bias
+
+            self.loss = tf.reduce_sum(tf.abs(tf.add(output_layer, tf.negative(output_embed))), reduction_indices=1)
+            self.optimizer = tf.train.GradientDescentOptimizer(learning_rate=1.0).minimize(self.loss)
 
             norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
             self.normalized_embeddings = embeddings / norm
 
-            self.valid_examples = np.random.choice(id_to_product.keys(), 10)
-            valid_data = tf.constant(self.valid_examples, dtype=tf.int32)
-            valid_embedding = tf.nn.embedding_lookup(embeddings, valid_data)
-            self.similarity = tf.matmul(valid_embedding, self.normalized_embeddings, transpose_b=True)
-
-            self.saver = tf.train.Saver()
             self.init = tf.initialize_all_variables()
 
     def train(self, num_steps, generate_batch):
@@ -73,7 +57,7 @@ class EmbeddingModel:
 
                 average_loss += loss_val
                 if step > 0 and step % 20000 == 0:
-                    print "Average loss at step: ", self.global_step.eval(), " loss: ", average_loss / 20000
+                    print "Average loss at step: ", self.global_step.eval(), " loss: ", average_loss / 2000
                     average_loss = 0
                     self.final_embeddings = self.normalized_embeddings.eval()
 
@@ -113,15 +97,12 @@ def load_data(filename):
                 paragraphs.append(pids)
                 prev_uid = uid
                 pids = []
-            if len(pids) == 0:
-                pids.append(product_dict[pid])
-            elif pids[len(pids) - 1] != product_dict[pid]:
-                pids.append(product_dict[pid])
+            pids.append(pid)
 
-            if num_lines_read % 10000000 == 0:
+            if num_lines_read % 1000000 == 0:
                 print "read %d lines" % num_lines_read
                 print "saw %d different products" % len(product_dict)
-            if num_lines_read % 100000000 == 0:
+            if num_lines_read % 10000000 == 0:
                 break
 
 
@@ -142,9 +123,6 @@ def generate_batch(batch_size):
                 batch[i] = product_id
                 labels[i, 0] = paragraphs[data_index][t]
                 i += 1
-                batch[i] = paragraphs[data_index][t]
-                labels[i, 0] = product_id
-                i += 1
                 found = True
                 break
 
@@ -162,9 +140,9 @@ def main():
     global product_dict
     global paragraphs
 
+    model = NNKNNModel(len(product_dict) + 1, 128, 128)
     load_data(FLAGS.input)
-    model = EmbeddingModel(len(product_dict) + 1, EMBEDDING_SIZE, BATCH_SIZE)
-    model.train(num_steps=NUM_STEPS, generate_batch=generate_batch)
+    model.train(num_steps=2000000, generate_batch=generate_batch)
 
 
 if __name__ == '__main__':
