@@ -12,8 +12,8 @@ from ops import lrelu, conv2d, conv2d_transpose, linear
 from utils import get_image
 
 
-D_ITERATIONS = 5
-G_ITERATIONS = 1
+D_ITERATIONS = 1
+G_ITERATIONS = 2
 SUPPORTED_EXTENSIONS = ["png", "jpg", "jpeg"]
 
 def dataset_files(root):
@@ -57,7 +57,7 @@ class WGANVector(object):
         self.d_loss_real = tf.reduce_mean(self.D_real)
         self.d_loss_fake = tf.reduce_mean(self.D_fake)
         self.d_loss = self.d_loss_fake - self.d_loss_real + self.gradient_penalty
-        self.d_loss_real_summary = tf.summary.scalar("d_loss_real", -self.d_loss_real)
+        self.d_loss_real_summary = tf.summary.scalar("d_loss_real", self.d_loss_real)
         self.d_loss_fake_summary = tf.summary.scalar("d_loss_fake", self.d_loss_fake)
         self.gradient_penalty_summary = tf.summary.scalar("d_loss_gp", self.gradient_penalty)
         self.d_loss_summary = tf.summary.scalar("d_loss", self.d_loss)
@@ -116,7 +116,7 @@ class WGANVector(object):
                     _, g_loss, summary_str = self.sess.run(
                         [self.g_optim, self.g_loss, self.g_summary],
                         feed_dict={self.images: batch_images, self.masks: masks})
-                    self.writer.add_summary(summary_str, self.global_step.eval() * G_ITERATIONS + i)
+                    self.writer.add_summary(summary_str, self.global_step.eval())
                     print("Epoch: [{:2d}] [{:4d}/{:4d}] time: {:4.4f}, d_loss: {:.8f}, g_loss: {:.8f}".format(
                         epoch, idx, batch_idx, time.time() - start_time, d_loss, g_loss))
 
