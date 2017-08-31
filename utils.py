@@ -53,8 +53,12 @@ def save_images(images, size, image_path):
 def save_image(image, save_dir, name):
     scipy.misc.imsave(os.path.join(save_dir, name + '.png'), image)
 
-def imread(path):
-    return scipy.misc.imread(path, mode='RGB').astype(np.float)
+def imread(path, size=None):
+    input = scipy.misc.imread(path, mode='RGB').astype(np.float32)
+    if not size:
+        return input
+    else:
+        return scipy.misc.imresize(input, (size, size))
 
 def merge(images, size):
     h, w = images.shape[1], images.shape[2]

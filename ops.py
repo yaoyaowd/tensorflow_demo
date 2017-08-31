@@ -31,6 +31,11 @@ def dilated_conv2d(input_, output_dim, k_h=3, k_w=3, dilation=2, stddev=0.02, na
         conv = tf.nn.bias_add(conv, biases)
         return conv
 
+def residual_block(input_, output_dim, k_h=3, k_w=3, name="resid"):
+    with tf.variable_scope(name):
+        tmp = tf.nn.relu(conv2d(input_, output_dim, k_h=k_h, k_w=k_w, d_h=1, d_w=1, name="c1"))
+        return input_ + conv2d(tmp, output_dim, k_h=k_h, k_w=k_w, d_h=1, d_w=1, name="c2")
+
 def conv2d_transpose(input_, output_shape, k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02, name="conv2d_transpose"):
     """A conv layer of size k_h*k_w*output_shape[-1] -> input_.get_shape()[-1], with stride d_h, d_w.
     Return deconv network:
