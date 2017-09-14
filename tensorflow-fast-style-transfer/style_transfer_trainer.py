@@ -6,12 +6,12 @@ import utils
 import style_transfer_tester
 
 class StyleTransferTrainer:
-    def __init__(self, content_layer_ids, style_layer_ids, content_images, style_image, session, net, num_epochs,
-                 batch_size, content_weight, style_weight, tv_weight, learn_rate, save_path, check_period, test_image,
-                 max_size):
-
-        self.net = net
+    def __init__(self, session,
+                 content_layer_ids, style_layer_ids, content_images, style_image, net,
+                 num_epochs, batch_size, content_weight, style_weight, tv_weight, learn_rate,
+                 save_path, check_period, max_size):
         self.sess = session
+        self.net = net
 
         # sort layers info
         self.CONTENT_LAYERS = collections.OrderedDict(sorted(content_layer_ids.items()))
@@ -21,8 +21,8 @@ class StyleTransferTrainer:
         self.x_list = content_images
         mod = len(content_images) % batch_size
         self.x_list = self.x_list[:-mod]
-        self.y_s0 = style_image
         self.content_size = len(self.x_list)
+        self.y_s0 = style_image
 
         # parameters for optimization
         self.num_epochs = num_epochs
@@ -38,33 +38,11 @@ class StyleTransferTrainer:
 
         # image transform network
         self.transform = transform.Transform()
-        self.tester = transform.Transform('test')
 
         # build graph for style transfer
         self._build_graph()
 
-        # test during training
-        if test_image is not None:
-            self.TEST = True
-
-            # load content image
-            self.test_image = utils.load_image(test_image, max_size=max_size)
-
-            # build graph
-            self.x_test = tf.placeholder(tf.float32, shape=self.test_image.shape, name='test_input')
-            self.xi_test = tf.expand_dims(self.x_test, 0)  # add one dim for batch
-
-            # result image from transform-net
-            self.y_hat_test = self.tester.net(
-                self.xi_test / 255.0)  # please build graph for train first. tester.net reuses variables.
-
-        else:
-            self.TEST = False
-
     def _build_graph(self):
-
-        """ prepare data """
-
         self.batch_shape = (self.batch_size,256,256,3)
 
         # graph input
@@ -153,6 +131,8 @@ class StyleTransferTrainer:
         tf.summary.scalar('L_style', self.L_style)
         tf.summary.scalar('L_tv', self.L_tv)
         tf.summary.scalar('L_total', self.L_total)
+        tf.summary.image('input_image', self.y_c)
+        tf.summary.image('output_image', self.y_hat)
 
     # borrowed from https://github.com/lengstrom/fast-style-transfer/blob/master/src/optimize.py
     def _get_total_variation_loss(self, img):
@@ -170,16 +150,18 @@ class StyleTransferTrainer:
         loss = tf.cast(loss, tf.float32)
         return loss
 
-    def train(self):
+    def prepare(self):
         """ define optimizer Adam """
-        global_step = tf.contrib.framework.get_or_create_global_step()
+        self.global_step = tf.contrib.framework.get_or_create_global_step()
 
-        trainable_variables = tf.trainable_variables()
-        grads = tf.gradients(self.L_total, trainable_variables)
+        self.trainable_variables = tf.trainable_variables()
+        self.grads = tf.gradients(self.L_total, self.trainable_variables)
 
-        optimizer = tf.train.AdamOptimizer(self.learn_rate)
-        train_op = optimizer.apply_gradients(zip(grads, trainable_variables), global_step=global_step,
-                                             name='train_step')
+        self.optimizer = tf.train.AdamOptimizer(self.learn_rate)
+        self.train_op = self.optimizer.apply_gradients(
+            zip(self.grads, self.trainable_variables),
+            global_step=self.global_step,
+            name='train_step')
 
         """ tensor board """
         # merge all summaries into a single op
@@ -192,29 +174,36 @@ class StyleTransferTrainer:
         self.sess.run(tf.global_variables_initializer())
 
         # saver to save model
-        saver = tf.train.Saver()
+        self.saver = tf.train.Saver(max_to_keep=3)
 
         # restore check-point if it exits
-        checkpoint_exists = True
+        self.checkpoint_exists = True
         try:
             ckpt_state = tf.train.get_checkpoint_state(self.save_path)
         except tf.errors.OutOfRangeError as e:
             print('Cannot restore checkpoint: %s' % e)
-            checkpoint_exists = False
+            self.checkpoint_exists = False
         if not (ckpt_state and ckpt_state.model_checkpoint_path):
             print('No model to restore at %s' % self.save_path)
-            checkpoint_exists = False
+            self.checkpoint_exists = False
 
-        if checkpoint_exists:
+        if self.checkpoint_exists:
             tf.logging.info('Loading checkpoint %s', ckpt_state.model_checkpoint_path)
-            saver.restore(self.sess, ckpt_state.model_checkpoint_path)
+            self.saver.restore(self.sess, ckpt_state.model_checkpoint_path)
+
+    def test(self, input):
+        output = self.sess.run(self.y_hat, feed_dict={self.x: input})
+        return output
+
+    def train(self):
+        self.prepare()
 
         """ loop for train """
         num_examples = len(self.x_list)
 
         # get iteration info
-        if checkpoint_exists:
-            iterations = self.sess.run(global_step)
+        if self.checkpoint_exists:
+            iterations = self.sess.run(self.global_step)
             epoch = (iterations * self.batch_size) // num_examples
             iterations = iterations - epoch*(num_examples // self.batch_size)
         else:
@@ -235,30 +224,23 @@ class StyleTransferTrainer:
                 assert x_batch.shape[0] == self.batch_size
 
                 _, summary, L_total, L_content, L_style, L_tv, step = self.sess.run(
-                    [train_op, merged_summary_op, self.L_total, self.L_content, self.L_style, self.L_tv, global_step],
+                    [self.train_op, self.merged_summary_op, self.L_total, self.L_content, self.L_style, self.L_tv, global_step],
                     feed_dict={self.y_c: x_batch, self.y_s: self.y_s0})
 
                 print('epoch : %d, iter : %4d, ' % (epoch, step),
                       'L_total : %g, L_content : %g, L_style : %g, L_tv : %g' % (L_total, L_content, L_style, L_tv))
 
                 # write logs at every iteration
-                summary_writer.add_summary(summary, iterations)
+                self.summary_writer.add_summary(summary, iterations)
 
                 if step % self.check_period == 0:
-                    res = saver.save(self.sess, self.save_path + '/final.ckpt', step)
+                    self.saver.save(self.sess, self.save_path + '/final.ckpt', step)
 
-                    if self.TEST:
-                        output_image = self.sess.run([self.y_hat_test], feed_dict={self.x_test: self.test_image})
-                        output_image = np.squeeze(output_image[0])  # remove one dim for batch
-                        output_image = np.clip(output_image, 0., 255.)
-
-                        utils.save_image(output_image, self.save_path + '/result_' + "%05d" % step + '.jpg')
             epoch += 1
             iterations = 0
-        res = saver.save(self.sess,self.save_path+'/final.ckpt')
+        self.saver.save(self.sess,self.save_path+'/final.ckpt')
 
     def _gram_matrix(self, tensor, shape=None):
-
         if shape is not None:
             B = shape[0]  # batch size
             HW = shape[1] # height x width
@@ -280,13 +262,3 @@ class StyleTransferTrainer:
         gram = tf.matmul(feats_T, feats) / CHW
 
         return gram
-
-
-
-
-
-
-
-
-
-
