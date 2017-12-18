@@ -36,7 +36,8 @@ def residual_block(input_, output_dim, k_h=3, k_w=3, name="resid"):
         tmp = tf.nn.relu(conv2d(input_, output_dim, k_h=k_h, k_w=k_w, d_h=1, d_w=1, name="c1"))
         return input_ + conv2d(tmp, output_dim, k_h=k_h, k_w=k_w, d_h=1, d_w=1, name="c2")
 
-def conv2d_transpose(input_, output_shape, k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02, name="conv2d_transpose"):
+def conv2d_transpose(input_, output_shape, k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02,
+                     name="conv2d_transpose", with_w=False):
     """A conv layer of size k_h*k_w*output_shape[-1] -> input_.get_shape()[-1], with stride d_h, d_w.
     Return deconv network:
         value: 4-D tensor input [batch, height, width, in_channels]
@@ -51,6 +52,8 @@ def conv2d_transpose(input_, output_shape, k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.
             input_, w, output_shape=output_shape, strides=[1, d_h, d_w, 1])
         biases = tf.get_variable('biases', [output_shape[-1]], initializer=tf.constant_initializer(0.0))
         deconv = tf.nn.bias_add(deconv, biases)
+        if with_w:
+            return deconv, w, biases
         return deconv
 
 def lrelu(x, leak=0.2, name="lrelu"):

@@ -83,10 +83,10 @@ def center_crop(x, crop_h, crop_w=None, resize_w=64):
     return scipy.misc.imresize(x[j:j+crop_h, i:i+crop_w],
                                [resize_w, resize_w])
 
-def transform(image, npx=64, is_crop=True):
+def transform(image, npx=64, is_crop=True, resize_w=64):
     # npx : # of pixels width/height of image
     if is_crop:
-        cropped_image = center_crop(image, npx)
+        cropped_image = center_crop(image, npx, resize_w=resize_w)
     else:
         cropped_image = image
     return np.array(cropped_image)/127.5 - 1.
